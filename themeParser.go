@@ -19,6 +19,7 @@ type ContentType struct {
 	Slug    string
 	Date    string
 	Content string
+	Draft   string
 }
 
 func renderContent(ctx map[string]string) {
@@ -36,7 +37,10 @@ func renderContent(ctx map[string]string) {
 				os.MkdirAll(getOutFilePath(path, ctx["contentDir"], ctx["outDir"]), os.ModePerm)
 			} else {
 				content := parseContentFile(ctx, path)
-				outPath := content.Link
+				if content.Draft == "true" && ctx["renderDrafts"] != "true" {
+					return nil
+				}
+				outPath := ctx["outDir"] + "/" + content.Link
 				os.MkdirAll(outPath, os.ModePerm)
 				contentCtx := addContentToContext(ctx, content)
 				parsedContentFile := parseThemeFile(contentCtx, path)
@@ -276,7 +280,7 @@ func parseContentFile(ctx map[string]string, filePath string) ContentType {
 
 	foo := strings.Replace(filePath, filepath.Ext(filePath), "", 1)
 	foo = filepath.ToSlash(foo)
-	foo = strings.Replace(foo, ctx["contentDir"], ctx["outDir"], 1)
+	foo = strings.Replace(foo, ctx["contentDir"], "", 1)
 	ret.Link = foo
 
 	scanner := bufio.NewScanner(file)
@@ -296,6 +300,9 @@ func parseContentFile(ctx map[string]string, filePath string) ContentType {
 			}
 			if strings.HasPrefix(line, "date:") {
 				ret.Date = strings.TrimSpace(strings.TrimPrefix(line, "date:"))
+			}
+			if strings.HasPrefix(line, "draft:") {
+				ret.Draft = strings.TrimSpace(strings.TrimPrefix(line, "draft:"))
 			}
 		} else {
 			ret.Content += line + "\n"

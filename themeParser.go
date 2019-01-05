@@ -141,8 +141,12 @@ func parseThemeFile(ctx map[string]string, filePath string) string {
 					line = replaceSnippet(line, snippetData)
 
 				case "foreach-content":
-					content := getForeachContent(ctx, snippetDirective, filePath)
-					line = renderForeachContent(ctx, snippetDirective, content)
+					if ctx["foreach-content"] == ""{
+						content := getForeachContent(ctx, snippetDirective, filePath)
+						line = renderForeachContent(ctx, snippetDirective, content)	
+					}else{
+						recursive and paging
+					}
 
 				}
 			}

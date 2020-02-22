@@ -199,6 +199,9 @@ func getForeachContent(ctx map[string]string, snippetDirective []string, filePat
 				return nil
 			} else {
 				fileContent := parseContentFile(ctx, path)
+				if fileContent.Draft == "true" && ctx["renderDrafts"] != "true" {
+					return nil
+				}
 				ret = append(ret, fileContent)
 			}
 			return nil

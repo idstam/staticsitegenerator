@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 //Taken from https://stackoverflow.com/questions/21060945/simple-way-to-copy-a-file-in-golang
@@ -46,12 +47,12 @@ func CopyFile(src, dst string) (err error) {
 // destination file exists, all it's contents will be replaced by the contents
 // of the source file.
 func copyFileContents(src, dst string) (err error) {
-	in, err := os.Open(src)
+	in, err := os.Open(filepath.FromSlash(src))
 	if err != nil {
 		return
 	}
 	defer in.Close()
-	out, err := os.Create(dst)
+	out, err := os.Create(filepath.FromSlash(dst))
 	if err != nil {
 		return
 	}

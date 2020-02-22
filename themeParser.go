@@ -41,12 +41,11 @@ func renderContent(ctx map[string]string) {
 					return nil
 				}
 				outPath := ctx["outDir"] + "/" + content.Link
-				os.MkdirAll(outPath, os.ModePerm)
+				os.MkdirAll(filepath.FromSlash(outPath), os.ModePerm)
 				contentCtx := addContentToContext(ctx, content)
 				parsedContentFile := parseThemeFile(contentCtx, path)
 				contentCtx["contentHtml"] = contentToHtml(parsedContentFile)
-				themePath := strings.Replace(filepath.ToSlash(path), contentCtx["contentDir"], contentCtx["themeDir"], 1)
-				templateFile := getFirstTemplate("content.html", themePath)
+				templateFile := getFirstTemplate("content.html", contentCtx["themeDir"])
 				if templateFile == "" {
 					log.Fatal("Found no content.html for " + path)
 				}
@@ -63,11 +62,11 @@ func renderContent(ctx map[string]string) {
 }
 
 func getFirstTemplate(fileName, themePath string) string {
-	dir := filepath.Dir(themePath)
-	dir = filepath.ToSlash(dir)
+	dir := themePath
 	for {
-		if _, err := os.Stat(dir + "/" + fileName); !os.IsNotExist(err) {
-			return dir + "/" + fileName
+		fp := filepath.FromSlash(dir + "/" + fileName)
+		if _, err := os.Stat(fp); !os.IsNotExist(err) {
+			return fp
 		}
 		dir = strings.TrimSuffix(dir, filepath.Base(dir))
 		dir = filepath.Dir(dir)
@@ -81,7 +80,7 @@ func getFirstTemplate(fileName, themePath string) string {
 }
 func renderTheme(ctx map[string]string) {
 
-	err := filepath.Walk(ctx["themeDir"],
+	err := filepath.Walk(filepath.FromSlash(ctx["themeDir"]),
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -113,7 +112,7 @@ func renderTheme(ctx map[string]string) {
 func parseThemeFile(ctx map[string]string, filePath string) string {
 	outData := ""
 	headerCount := 0
-	file, err := os.Open(filePath)
+	file, err := os.Open(filepath.FromSlash(filePath))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -141,12 +140,8 @@ func parseThemeFile(ctx map[string]string, filePath string) string {
 					line = replaceSnippet(line, snippetData)
 
 				case "foreach-content":
-					if ctx["foreach-content"] == ""{
-						content := getForeachContent(ctx, snippetDirective, filePath)
-						line = renderForeachContent(ctx, snippetDirective, content)	
-					}else{
-						recursive and paging
-					}
+					content := getForeachContent(ctx, snippetDirective, filePath)
+					line = renderForeachContent(ctx, snippetDirective, content)
 
 				}
 			}
@@ -244,18 +239,20 @@ func templateGenerator() string {
 
 func getOutFilePath(themeFilePath string, themeDir, outDir string) string {
 	themeFilePath = filepath.ToSlash(themeFilePath)
+	themeDir = filepath.ToSlash(themeDir)
+	outDir = filepath.ToSlash(outDir)
 	ret := strings.Replace(themeFilePath, themeDir, outDir, 1)
-	return ret
+	return filepath.FromSlash(ret)
 }
 func getContentPath(ctx map[string]string, themePath string) string {
 	themePath = filepath.ToSlash(themePath)
-	return strings.Replace(themePath, ctx["themeDir"], ctx["contentDir"], 1)
+	return filepath.FromSlash(strings.Replace(themePath, filepath.ToSlash(ctx["themeDir"]), filepath.ToSlash(ctx["contentDir"]), 1))
 }
 
 func writeStringToFile(filePath string, content string) {
 	//fmt.Println(content)
 
-	fo, err := os.Create(filePath)
+	fo, err := os.Create(filepath.FromSlash(filePath))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -276,7 +273,7 @@ func parseContentFile(ctx map[string]string, filePath string) ContentType {
 	ret := ContentType{}
 	headerCount := 0
 
-	file, err := os.Open(filePath)
+	file, err := os.Open(filepath.FromSlash(filePath))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -284,7 +281,7 @@ func parseContentFile(ctx map[string]string, filePath string) ContentType {
 
 	foo := strings.Replace(filePath, filepath.Ext(filePath), "", 1)
 	foo = filepath.ToSlash(foo)
-	foo = strings.Replace(foo, ctx["contentDir"], "", 1)
+	foo = strings.Replace(foo, filepath.ToSlash(ctx["contentDir"]), "", 1)
 	ret.Link = foo
 
 	scanner := bufio.NewScanner(file)

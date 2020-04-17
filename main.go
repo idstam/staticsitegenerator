@@ -5,6 +5,9 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/otiai10/copy"
+	_ "github.com/otiai10/copy"
 )
 
 func main() {
@@ -26,6 +29,7 @@ func main() {
 
 	renderContent(ctx)
 	renderTheme(ctx)
+	copyStatics(ctx)
 
 }
 
@@ -55,6 +59,7 @@ func readContext() map[string]string {
 			}
 			curVal = ""
 			curKey = strings.TrimPrefix(line, ":")
+			curKey = strings.TrimSpace(curKey)
 		} else {
 			curVal += line + "\n"
 		}
@@ -63,4 +68,14 @@ func readContext() map[string]string {
 	ctx[curKey] = strings.TrimSpace(curVal)
 
 	return ctx
+}
+
+func copyStatics(ctx map[string]string) {
+
+	s := ctx["staticDir"]
+	o := ctx["outDir"]
+	err := copy.Copy(s, o)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

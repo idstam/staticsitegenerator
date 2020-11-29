@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	_ "gopkg.in/russross/blackfriday.v2"
@@ -23,6 +25,10 @@ type ContentType struct {
 }
 
 func renderContent(ctx map[string]string) {
+
+	pagedContent := []string{}
+	parsedContentFile := ""
+	html := ""
 
 	err := filepath.Walk(ctx["contentDir"],
 		func(path string, info os.FileInfo, err error) error {
@@ -43,14 +49,14 @@ func renderContent(ctx map[string]string) {
 				outPath := ctx["outDir"] + "/" + content.Link
 				os.MkdirAll(filepath.FromSlash(outPath), os.ModePerm)
 				contentCtx := addContentToContext(ctx, content)
-				parsedContentFile := parseThemeFile(contentCtx, path)
+				parsedContentFile, pagedContent = parseThemeFile(contentCtx, path)
 				contentCtx["contentHtml"] = contentToHtml(parsedContentFile)
 				templateFile := getFirstTemplate("content.html", contentCtx["themeDir"])
 				if templateFile == "" {
 					log.Fatal("Found no content.html for " + path)
 				}
 				fmt.Print("Use template:" + templateFile)
-				html := parseThemeFile(contentCtx, templateFile)
+				html, pagedContent = parseThemeFile(contentCtx, templateFile)
 				writeStringToFile(outPath+"/"+"index.html", html)
 			}
 			return nil
@@ -93,9 +99,35 @@ func renderTheme(ctx map[string]string) {
 				os.MkdirAll(getOutFilePath(path, ctx["themeDir"], ctx["outDir"]), os.ModePerm)
 			} else {
 				if strings.HasSuffix(path, "index.html") {
-					fileContent := parseThemeFile(ctx, path)
-					outPath := getOutFilePath(path, ctx["themeDir"], ctx["outDir"])
-					writeStringToFile(outPath, fileContent)
+					fileContent, pagedContent := parseThemeFile(ctx, path)
+					contentFolder := strings.Replace(path, ctx["themeDir"], "", 1)
+					contentFolder = strings.Replace(contentFolder, string(filepath.Separator)+"index.html", "", 1)
+					contentFolder = strings.Replace(contentFolder, string(filepath.Separator), "", 1)
+					if len(pagedContent) == 0 {
+						outPath := getOutFilePath(path, ctx["themeDir"], ctx["outDir"])
+						writeStringToFile(outPath, fileContent)
+					} else {
+						for pageNumber, pc := range pagedContent {
+							outPath := getOutFilePath(path, ctx["themeDir"], ctx["outDir"])
+							nextLink := ctx["baseUrl"] + "/" + contentFolder + "/" + strconv.Itoa(pageNumber+2) + "/index.html"
+							prevLink := ctx["baseUrl"] + "/" + contentFolder + "/" + strconv.Itoa(pageNumber) + "/index.html"
+							if pageNumber == 0 {
+								prevLink = ctx["baseUrl"] + "/" + contentFolder + "/" + strconv.Itoa(len(pagedContent)) + "/index.html"
+							}
+							if pageNumber == len(pagedContent)-1 {
+								nextLink = ctx["baseUrl"] + "/" + contentFolder + "/index.html"
+							}
+							if pageNumber == 1 {
+								prevLink = ctx["baseUrl"] + "/" + contentFolder + "/index.html"
+							}
+							if pageNumber > 0 {
+								outPath = strings.Replace(outPath, "index.html", strconv.Itoa(pageNumber+1)+string(filepath.Separator)+"index.html", 1)
+							}
+							os.MkdirAll(filepath.FromSlash(strings.Replace(outPath, "index.html", "", 1)), os.ModePerm)
+							outStr := combinePagedContent(fileContent, pc, pageNumber+1, len(pagedContent), prevLink, nextLink)
+							writeStringToFile(outPath, outStr)
+						}
+					}
 				} else if strings.HasSuffix(path, "content.html") {
 				} else {
 					outPath := getOutFilePath(path, ctx["themeDir"], ctx["outDir"])
@@ -109,8 +141,38 @@ func renderTheme(ctx map[string]string) {
 	}
 
 }
-func parseThemeFile(ctx map[string]string, filePath string) string {
+func combinePagedContent(pagedTemplate string, content string, pageNumber int, pageCount int, prevLink string, nextLink string) string {
+	pagedTemplate = strings.Replace(pagedTemplate, "{{paged-current}}", strconv.Itoa(pageNumber), -1)
+	pagedTemplate = strings.Replace(pagedTemplate, "{{paged-total}}", strconv.Itoa(pageCount), -1)
+	pagedTemplate = strings.Replace(pagedTemplate, "{{paged-prev}}", prevLink, -1)
+	pagedTemplate = strings.Replace(pagedTemplate, "{{paged-next}}", nextLink, -1)
+
+	tmp := between(pagedTemplate, "{{paged-content:", "}}")
+	pagedTemplate = strings.Replace(pagedTemplate, fmt.Sprintf("{{paged-content:%s}}", tmp), content, 1)
+
+	return pagedTemplate
+}
+
+func between(value string, a string, b string) string {
+	// Get substring between two strings.
+	posFirst := strings.Index(value, a)
+	if posFirst == -1 {
+		return ""
+	}
+	posLast := strings.Index(value, b)
+	if posLast == -1 {
+		return ""
+	}
+	posFirstAdjusted := posFirst + len(a)
+	if posFirstAdjusted >= posLast {
+		return ""
+	}
+	return value[posFirstAdjusted:posLast]
+}
+func parseThemeFile(ctx map[string]string, filePath string) (string, []string) {
 	outData := ""
+	pagedContent := []string{}
+
 	headerCount := 0
 	file, err := os.Open(filepath.FromSlash(filePath))
 	if err != nil {
@@ -121,6 +183,7 @@ func parseThemeFile(ctx map[string]string, filePath string) string {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		snippetData := ""
+
 		line := scanner.Text()
 		if line == "---" && headerCount < 2 {
 			headerCount++
@@ -133,7 +196,7 @@ func parseThemeFile(ctx map[string]string, filePath string) string {
 				case "generator":
 					line = replaceSnippet(line, templateGenerator())
 				case "snippet":
-					snippetData = getParsedSnippet(ctx, snippetDirective)
+					snippetData, _ = getParsedSnippet(ctx, snippetDirective)
 					line = replaceSnippet(line, snippetData)
 				case "context":
 					snippetData = ctx[snippetDirective[1]]
@@ -142,6 +205,10 @@ func parseThemeFile(ctx map[string]string, filePath string) string {
 				case "foreach-content":
 					content := getForeachContent(ctx, snippetDirective, filePath)
 					line = renderForeachContent(ctx, snippetDirective, content)
+
+				case "paged-content":
+					content := getForeachContent(ctx, snippetDirective, filePath)
+					pagedContent = renderPagedContent(ctx, snippetDirective, content)
 
 				}
 			}
@@ -154,7 +221,7 @@ func parseThemeFile(ctx map[string]string, filePath string) string {
 		log.Fatal(err)
 	}
 
-	return outData
+	return outData, pagedContent
 
 }
 func getSnippetDirective(line string) []string {
@@ -178,10 +245,10 @@ func replaceSnippet(line string, snippetData string) string {
 	return line
 
 }
-func getParsedSnippet(ctx map[string]string, snippetDirective []string) string {
+func getParsedSnippet(ctx map[string]string, snippetDirective []string) (string, []string) {
 	snippetFile := snippetDirective[1]
-	ret := parseThemeFile(ctx, ctx["themeDir"]+"/theme-snippets/"+snippetFile)
-	return ret
+	return parseThemeFile(ctx, ctx["themeDir"]+"/theme-snippets/"+snippetFile)
+
 }
 func getForeachContent(ctx map[string]string, snippetDirective []string, filePath string) []ContentType {
 
@@ -209,22 +276,53 @@ func getForeachContent(ctx map[string]string, snippetDirective []string, filePat
 	if err != nil {
 		log.Println(err)
 	}
+	sort.Slice(ret, func(i, j int) bool {
+		return ret[i].Date > ret[j].Date
+	})
+
 	return ret
 }
 
 func renderForeachContent(inCtx map[string]string, snippetDirective []string, content []ContentType) string {
 	ret := ""
+	foo := ""
 	snippetFile := snippetDirective[1]
 
 	for _, c := range content {
 		ctx := addContentToContext(inCtx, c)
 
-		ret = parseThemeFile(ctx, ctx["themeDir"]+"/theme-snippets/"+snippetFile) + "\n" + ret
+		foo, _ = parseThemeFile(ctx, ctx["themeDir"]+"/theme-snippets/"+snippetFile)
+		ret = foo + "\n" + ret
 
 	}
 
 	return ret
 }
+func renderPagedContent(inCtx map[string]string, snippetDirective []string, content []ContentType) []string {
+	ret := []string{}
+	tmp := ""
+	foo := ""
+	snippetFile := snippetDirective[1]
+
+	i := 0
+	for _, c := range content {
+		ctx := addContentToContext(inCtx, c)
+
+		foo, _ = parseThemeFile(ctx, ctx["themeDir"]+"/theme-snippets/"+snippetFile)
+		tmp = tmp + "\n" + foo
+		i++
+
+		if i%10 == 0 {
+			ret = append(ret, tmp)
+			tmp = ""
+		}
+	}
+
+	ret = append(ret, tmp)
+
+	return ret
+}
+
 func addContentToContext(inCtx map[string]string, c ContentType) map[string]string {
 	ctx := map[string]string{}
 	for k, v := range inCtx {
@@ -267,6 +365,7 @@ func writeStringToFile(filePath string, content string) {
 	}
 
 }
+
 func contentToHtml(content string) string {
 	html := blackfriday.Run([]byte(content))
 	return string(html)
